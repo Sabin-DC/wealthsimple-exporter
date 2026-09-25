@@ -8,15 +8,18 @@ import { fetchAccounts, fetchTransactions } from './transactionService';
 import { generateExportFile } from '../utils/exporters';
 import type { ExportFormat } from '../utils/exporters';
 
-interface AuthData {
-  authToken: string;
-  identityId: string;
+let tokenChanges: Promise<void> = Promise.resolve();
+
+function queueTokenChange<T>(change: () => Promise<T>): Promise<T> {
+  const result = tokenChanges.then(change);
+  tokenChanges = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 /**
- * Extract authentication data from Wealthsimple cookie
+ * Read the Wealthsimple cookie only after the user requests it.
  */
-async function extractAuthFromCookie(): Promise<AuthData | null> {
+async function readTokenFromCookie(): Promise<string | null> {
   try {
     const cookie = await chrome.cookies.get({
       url: 'https://my.wealthsimple.com',
@@ -31,23 +34,30 @@ async function extractAuthFromCookie(): Promise<AuthData | null> {
     const decodedValue = decodeURIComponent(cookie.value);
     const authData = JSON.parse(decodedValue);
 
-    if (!authData.access_token || !authData.identity_canonical_id) {
-      return null;
-    }
-
-    // Store in chrome.storage.local for popup access
-    await chrome.storage.local.set({
-      authToken: authData.access_token,
-      identityId: authData.identity_canonical_id,
-    });
-
-    return {
-      authToken: authData.access_token,
-      identityId: authData.identity_canonical_id,
-    };
+    return typeof authData.access_token === 'string' && authData.access_token
+      ? authData.access_token
+      : null;
   } catch {
     return null;
   }
+}
+
+async function getStoredToken(): Promise<string | null> {
+  await tokenChanges;
+  const { authToken } = await chrome.storage.session.get('authToken');
+  return typeof authToken === 'string' && authToken ? authToken : null;
+}
+
+async function broadcastTokenStatus(stored: boolean): Promise<void> {
+  const message = { type: 'TOKEN_STATUS_CHANGED', stored };
+  await Promise.allSettled([
+    chrome.runtime.sendMessage(message),
+    chrome.tabs.query({ url: 'https://my.wealthsimple.com/*' }).then(tabs =>
+      Promise.allSettled(tabs
+        .filter(tab => tab.id !== undefined)
+        .map(tab => chrome.tabs.sendMessage(tab.id!, message)))
+    ),
+  ]);
 }
 
 /**
@@ -82,16 +92,15 @@ async function handleExportTransactions(
   }) => void
 ) {
   try {
-    // Step 1: Extract auth from cookie
-    const auth = await extractAuthFromCookie();
+    const authToken = await getStoredToken();
 
-    if (!auth) {
-      sendResponse({ success: false, error: 'Not authenticated. Please log into my.wealthsimple.com' });
+    if (!authToken) {
+      sendResponse({ success: false, error: 'No token stored. Click Get Token before exporting.' });
       return;
     }
 
     // Step 2: Fetch accounts
-    const accounts = await fetchAccounts(auth.authToken);
+    const accounts = await fetchAccounts(authToken);
 
     if (!accounts || accounts.length === 0) {
       sendResponse({ success: false, error: 'No accounts found.' });
@@ -146,7 +155,7 @@ async function handleExportTransactions(
 
     const transactions = await fetchTransactions(
       targetAccount.id,
-      auth.authToken,
+      authToken,
       accountMap,
       useLastTransactionId ? undefined : dateRange.startDate,
       useLastTransactionId ? undefined : dateRange.endDate,
@@ -257,31 +266,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  if (message.type === 'CHECK_AUTH') {
-    extractAuthFromCookie()
-      .then(auth => {
-        sendResponse({ authenticated: !!auth });
-      })
-      .catch(() => {
-        sendResponse({ authenticated: false });
-      });
+  if (message.type === 'GET_TOKEN_STATUS') {
+    getStoredToken()
+      .then(token => sendResponse({ stored: !!token }))
+      .catch(() => sendResponse({ stored: false, error: 'Could not read token status.' }));
+    return true;
+  }
+
+  if (message.type === 'GET_TOKENS') {
+    queueTokenChange(async () => {
+      const token = await readTokenFromCookie();
+      if (!token) {
+        await chrome.storage.session.remove('authToken');
+        await broadcastTokenStatus(false);
+        return { success: false, stored: false, error: 'No Wealthsimple session found. Log in and try again.' };
+      }
+      await chrome.storage.session.set({ authToken: token });
+      await broadcastTokenStatus(true);
+      return { success: true, stored: true };
+    })
+      .then(sendResponse)
+      .catch(() => sendResponse({ success: false, stored: false, error: 'Could not store the token.' }));
+    return true;
+  }
+
+  if (message.type === 'FLUSH_TOKEN') {
+    queueTokenChange(async () => {
+      await chrome.storage.session.remove('authToken');
+      await chrome.storage.local.remove(['authToken', 'identityId']);
+      await broadcastTokenStatus(false);
+      return { success: true, stored: false };
+    })
+      .then(sendResponse)
+      .catch(() => sendResponse({ success: false, error: 'Could not flush the token.' }));
     return true;
   }
 
   return false;
 });
 
-// Initialize: Extract auth from cookie on extension load
+// Remove tokens persisted by earlier versions; current tokens live only for this browser session.
 chrome.runtime.onInstalled.addListener(() => {
-  extractAuthFromCookie();
+  void chrome.storage.local.remove(['authToken', 'identityId']);
 });
-
-// Extract auth when user navigates to Wealthsimple
-chrome.webNavigation?.onCompleted?.addListener(
-  (details) => {
-    if (details.frameId === 0) {
-      extractAuthFromCookie();
-    }
-  },
-  { url: [{ hostSuffix: 'wealthsimple.com' }] }
-);

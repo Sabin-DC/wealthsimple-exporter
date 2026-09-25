@@ -10,6 +10,7 @@ type ExportFormat = 'csv' | 'ofx' | 'qfx';
 
 let exportUIInjected = false;
 let contentAccountId: string | null = null;
+let updatePanelTokenState: ((stored: boolean) => void) | null = null;
 const EXPORT_FORMAT_KEY = 'preferredExportFormat';
 
 /**
@@ -405,7 +406,10 @@ function injectExportUI(accountId: string): boolean {
 
   // Check if panel already exists (from a previous injection)
   let panel = document.getElementById('ws-export-panel');
-  if (panel) panel.remove();
+  if (panel) {
+    panel.remove();
+    updatePanelTokenState = null;
+  }
 
   let overlay = document.getElementById('ws-panel-overlay');
   if (overlay) overlay.remove();
@@ -420,6 +424,14 @@ function injectExportUI(accountId: string): boolean {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
       <h3 style="margin: 0; color: var(--ws-export-text); font-size: 18px; font-weight: 600;">Export Transactions</h3>
       <button id="ws-close-panel" style="background: none; border: none; color: var(--ws-export-subtext); cursor: pointer; font-size: 24px; padding: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">&times;</button>
+    </div>
+
+    <div style="margin-bottom: 16px;">
+      <div id="ws-token-status" role="status" aria-live="polite" style="color: var(--ws-export-text); font-size: 13px; margin-bottom: 8px;">Session token: Checking...</div>
+      <div style="display: flex; gap: 8px;">
+        <button id="ws-get-token" style="flex: 1; padding: 8px; background: var(--ws-export-input-bg); border: 1px solid #5F3DC4; border-radius: 6px; color: #5F3DC4; cursor: pointer;">Get Token</button>
+        <button id="ws-flush-token" disabled style="flex: 1; padding: 8px; background: var(--ws-export-input-bg); border: 1px solid #5F3DC4; border-radius: 6px; color: #5F3DC4; cursor: pointer;">Flush Token</button>
+      </div>
     </div>
     
     <div style="margin-bottom: 16px;">
@@ -452,7 +464,7 @@ function injectExportUI(accountId: string): boolean {
             <option value="qfx">QFX (Quicken)</option>
           </select>
         </div>
-        <button id="ws-export-btn" style="width: 100%; padding: 12px; background: #5F3DC4; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 14px; font-weight: 600;">Export Transactions</button>
+        <button id="ws-export-btn" disabled style="width: 100%; padding: 12px; background: #5F3DC4; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 14px; font-weight: 600;">Export Transactions</button>
         <button id="ws-export-since-last" style="display: none; width: 100%; padding: 10px; background: var(--ws-export-input-bg); border: 1px solid #5F3DC4; border-radius: 6px; color: #5F3DC4; cursor: pointer; font-size: 13px;">Export Since Last</button>
       </div>
       
@@ -488,12 +500,87 @@ function setupExportPanel(accountId: string) {
   const closeBtn = document.getElementById('ws-close-panel');
   const exportBtn = document.getElementById('ws-export-btn');
   const exportSinceLastBtn = document.getElementById('ws-export-since-last');
+  const getTokenBtn = document.getElementById('ws-get-token') as HTMLButtonElement | null;
+  const flushTokenBtn = document.getElementById('ws-flush-token') as HTMLButtonElement | null;
+  const tokenStatus = document.getElementById('ws-token-status');
   const startDateInput = document.getElementById('ws-start-date') as HTMLInputElement;
   const endDateInput = document.getElementById('ws-end-date') as HTMLInputElement;
   const lastExportInfo = document.getElementById('ws-last-export-info');
   const exportStatus = document.getElementById('ws-export-status');
   const formatSelect = document.getElementById('ws-export-format') as HTMLSelectElement;
   let exportSinceLastRequested = false;
+  let tokenStored = false;
+  let tokenBusy = false;
+  let tokenStateVersion = 0;
+  let exporting = false;
+
+  const renderTokenState = () => {
+    if (tokenStatus) {
+      tokenStatus.textContent = tokenStored
+        ? 'Session token: Stored for this browser session'
+        : 'Session token: Not stored';
+    }
+    if (getTokenBtn) getTokenBtn.disabled = tokenBusy || exporting;
+    if (flushTokenBtn) flushTokenBtn.disabled = tokenBusy || exporting || !tokenStored;
+    if (exportBtn) (exportBtn as HTMLButtonElement).disabled = tokenBusy || exporting || !tokenStored;
+    if (exportSinceLastBtn) (exportSinceLastBtn as HTMLButtonElement).disabled = tokenBusy || exporting || !tokenStored;
+  };
+
+  updatePanelTokenState = (stored: boolean) => {
+    tokenStateVersion++;
+    tokenStored = stored;
+    renderTokenState();
+  };
+
+  const refreshTokenStatus = async () => {
+    const version = ++tokenStateVersion;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_TOKEN_STATUS' });
+      if (version !== tokenStateVersion) return;
+      if (response?.error) throw new Error(response.error);
+      tokenStored = response?.stored === true;
+      renderTokenState();
+    } catch {
+      if (version !== tokenStateVersion) return;
+      tokenStored = false;
+      renderTokenState();
+      if (tokenStatus) tokenStatus.textContent = 'Session token: Status unavailable';
+    }
+  };
+
+  const handleTokenAction = async (type: 'GET_TOKENS' | 'FLUSH_TOKEN') => {
+    tokenStateVersion++;
+    tokenBusy = true;
+    renderTokenState();
+    try {
+      const response = await chrome.runtime.sendMessage({ type });
+      if (!response?.success) {
+        await refreshTokenStatus();
+        if (exportStatus) exportStatus.textContent = response?.error || 'Token action failed';
+        return;
+      }
+      tokenStateVersion++;
+      tokenStored = response.stored === true;
+      if (exportStatus) {
+        exportStatus.textContent = type === 'GET_TOKENS'
+          ? 'Token loaded. You can export transactions.'
+          : 'Token flushed from this extension.';
+      }
+    } catch {
+      await refreshTokenStatus();
+      if (exportStatus) exportStatus.textContent = 'Token action failed';
+    } finally {
+      tokenBusy = false;
+      renderTokenState();
+    }
+  };
+
+  getTokenBtn?.addEventListener('click', (event) => {
+    if (event.isTrusted) void handleTokenAction('GET_TOKENS');
+  });
+  flushTokenBtn?.addEventListener('click', (event) => {
+    if (event.isTrusted) void handleTokenAction('FLUSH_TOKEN');
+  });
 
   const selectedFormat = (): ExportFormat => {
     const value = formatSelect?.value;
@@ -531,6 +618,7 @@ function setupExportPanel(accountId: string) {
     if (panel && overlay) {
       panel.style.display = 'block';
       overlay.style.display = 'block';
+      void refreshTokenStatus();
     }
   };
 
@@ -571,8 +659,15 @@ function setupExportPanel(accountId: string) {
   exportBtn?.addEventListener('click', async () => {
     if (!startDateInput || !endDateInput || !exportStatus) return;
 
+    await refreshTokenStatus();
+    if (!tokenStored) {
+      exportStatus.textContent = 'Click Get Token before exporting.';
+      return;
+    }
+
+    exporting = true;
+    renderTokenState();
     exportBtn.textContent = 'Exporting...';
-    exportBtn.setAttribute('disabled', 'true');
     exportStatus.textContent = '';
 
     try {
@@ -616,21 +711,24 @@ function setupExportPanel(accountId: string) {
         setTimeout(() => {
           hidePanel();
           exportBtn.textContent = 'Export Transactions';
-          exportBtn.removeAttribute('disabled');
+          exporting = false;
+          renderTokenState();
           if (exportStatus) exportStatus.textContent = '';
         }, 2000);
       } else {
         exportStatus.textContent = response?.error || 'Export failed';
         exportStatus.style.color = '#f87171';
         exportBtn.textContent = 'Export Transactions';
-        exportBtn.removeAttribute('disabled');
+        exporting = false;
+        renderTokenState();
       }
     } catch {
       exportSinceLastRequested = false;
       exportStatus.textContent = 'Export failed';
       exportStatus.style.color = '#f87171';
       exportBtn.textContent = 'Export Transactions';
-      exportBtn.removeAttribute('disabled');
+      exporting = false;
+      renderTokenState();
     }
   });
 
@@ -669,6 +767,11 @@ function setupExportPanel(accountId: string) {
  * Listen for messages from popup
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'TOKEN_STATUS_CHANGED') {
+    updatePanelTokenState?.(message.stored === true);
+    return false;
+  }
+
   if (message.type === 'GET_ACCOUNT_INFO') {
     const accountInfo = extractAccountInfo();
     sendResponse(accountInfo);

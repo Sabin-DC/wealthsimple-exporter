@@ -38,6 +38,21 @@
       color: #2e7d32;
       border: 1px solid #81c784;
     }
+    .token-controls {
+      margin-bottom: 16px;
+    }
+    #tokenStatus {
+      margin-bottom: 8px;
+      font-size: 13px;
+      color: #333;
+    }
+    .token-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .token-buttons button {
+      flex: 1;
+    }
     .date-range {
       margin-bottom: 16px;
     }
@@ -156,7 +171,14 @@
 <body>
   <div id="app">
     <h1>Wealthsimple Exporter</h1>
-    <div id="status" class="info">Checking authentication...</div>
+    <div id="status" class="info">Checking token status...</div>
+    <div class="token-controls">
+      <div id="tokenStatus" role="status" aria-live="polite">Session token: Checking...</div>
+      <div class="token-buttons">
+        <button id="getTokenBtn" class="secondary">Get Token</button>
+        <button id="flushTokenBtn" class="secondary" disabled>Flush Token</button>
+      </div>
+    </div>
 
     <div class="format-row" id="formatSection" style="display: none;">
       <label for="formatSelect">Export Format</label>

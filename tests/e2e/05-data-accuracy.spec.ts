@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import { navigateToAccount } from './helpers/auth';
+import { ensureTokenLoaded } from './helpers/token';
 import { waitForDownload, readDownloadContent, parseCSV, snapshotDownloadsDir, waitForExportStatus } from './helpers/downloads';
 
 test.describe.configure({ mode: 'serial' });
@@ -14,6 +15,7 @@ test.describe('05 - Data Accuracy', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         // Verify export succeeded before checking file
@@ -37,6 +39,7 @@ test.describe('05 - Data Accuracy', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);
@@ -63,6 +66,7 @@ test.describe('05 - Data Accuracy', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);
@@ -98,6 +102,7 @@ test.describe('05 - Data Accuracy', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);

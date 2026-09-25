@@ -1,6 +1,13 @@
 import type { ExportFormat } from '../utils/exporters';
 
 let statusDiv: HTMLDivElement | null = null;
+let tokenStatusDiv: HTMLDivElement | null = null;
+let getTokenBtn: HTMLButtonElement | null = null;
+let flushTokenBtn: HTMLButtonElement | null = null;
+let tokenStored = false;
+let tokenBusy = false;
+let tokenStateVersion = 0;
+let exporting = false;
 let exportBtn: HTMLButtonElement | null = null;
 let exportSinceLastBtn: HTMLButtonElement | null = null;
 let startDateInput: HTMLInputElement | null = null;
@@ -23,6 +30,59 @@ function updateStatus(message: string, type: 'info' | 'error' | 'success' = 'inf
   if (statusDiv) {
     statusDiv.textContent = message;
     statusDiv.className = type;
+  }
+}
+
+function renderTokenState() {
+  if (tokenStatusDiv) {
+    tokenStatusDiv.textContent = tokenStored
+      ? 'Session token: Stored for this browser session'
+      : 'Session token: Not stored';
+  }
+  if (getTokenBtn) getTokenBtn.disabled = tokenBusy || exporting;
+  if (flushTokenBtn) flushTokenBtn.disabled = tokenBusy || exporting || !tokenStored;
+  if (exportBtn) exportBtn.disabled = tokenBusy || exporting || !tokenStored || !currentAccountId;
+  if (exportSinceLastBtn) exportSinceLastBtn.disabled = tokenBusy || exporting || !tokenStored || !currentAccountId;
+}
+
+async function refreshTokenStatus() {
+  const version = ++tokenStateVersion;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'GET_TOKEN_STATUS' });
+    if (version !== tokenStateVersion) return;
+    if (response?.error) throw new Error(response.error);
+    tokenStored = response?.stored === true;
+    renderTokenState();
+  } catch {
+    if (version !== tokenStateVersion) return;
+    tokenStored = false;
+    renderTokenState();
+    if (tokenStatusDiv) tokenStatusDiv.textContent = 'Session token: Status unavailable';
+  }
+}
+
+async function handleTokenAction(type: 'GET_TOKENS' | 'FLUSH_TOKEN') {
+  tokenStateVersion++;
+  tokenBusy = true;
+  renderTokenState();
+  try {
+    const response = await chrome.runtime.sendMessage({ type });
+    if (!response?.success) {
+      await refreshTokenStatus();
+      updateStatus(response?.error || 'Token action failed', 'error');
+      return;
+    }
+    tokenStateVersion++;
+    tokenStored = response.stored === true;
+    updateStatus(type === 'GET_TOKENS'
+      ? 'Token loaded. You can export transactions.'
+      : 'Token flushed from this extension.', 'success');
+  } catch {
+    await refreshTokenStatus();
+    updateStatus('Token action failed', 'error');
+  } finally {
+    tokenBusy = false;
+    renderTokenState();
   }
 }
 
@@ -117,15 +177,6 @@ async function updateLastExportInfo(accountId: string) {
   }
 }
 
-async function checkAuth(): Promise<boolean> {
-  try {
-    const result = await chrome.storage.local.get(['authToken']);
-    return !!result.authToken;
-  } catch {
-    return false;
-  }
-}
-
 async function getCurrentAccountInfo(): Promise<{ accountId: string | null; accountName: string | null; isAccountPage: boolean }> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -161,8 +212,14 @@ async function handleExport(sinceLast: boolean = false) {
   const format = getSelectedFormat();
   const lastExport = sinceLast ? await getLastExportInfo(currentAccountId) : null;
 
-  exportBtn.disabled = true;
-  if (exportSinceLastBtn) exportSinceLastBtn.disabled = true;
+  await refreshTokenStatus();
+  if (!tokenStored) {
+    updateStatus('Click Get Token before exporting.', 'info');
+    return;
+  }
+
+  exporting = true;
+  renderTokenState();
   updateStatus(`Exporting ${format.toUpperCase()}...`, 'info');
 
   try {
@@ -182,23 +239,23 @@ async function handleExport(sinceLast: boolean = false) {
       await updateLastExportInfo(currentAccountId);
 
       setTimeout(() => {
-        if (exportBtn) exportBtn.disabled = false;
-        if (exportSinceLastBtn) exportSinceLastBtn.disabled = false;
+        exporting = false;
+        renderTokenState();
         updateStatus('Ready to export transactions', 'success');
       }, 2000);
     } else {
       updateStatus(response?.error || 'Export failed', 'error');
       setTimeout(() => {
-        if (exportBtn) exportBtn.disabled = false;
-        if (exportSinceLastBtn) exportSinceLastBtn.disabled = false;
+        exporting = false;
+        renderTokenState();
       }, 1200);
     }
   } catch (error) {
     // Export failed
     updateStatus(error instanceof Error ? error.message : 'Failed to export transactions', 'error');
     setTimeout(() => {
-      if (exportBtn) exportBtn.disabled = false;
-      if (exportSinceLastBtn) exportSinceLastBtn.disabled = false;
+      exporting = false;
+      renderTokenState();
     }, 1200);
   }
 }
@@ -229,32 +286,13 @@ async function init() {
       formatSelect.value = preferredFormat;
     }
 
-    const isAuthenticated = await checkAuth();
-
-    if (!isAuthenticated) {
-      updateStatus('Extracting authentication from cookie...', 'info');
-      if (exportBtn) exportBtn.disabled = true;
-
-      try {
-        const response = await chrome.runtime.sendMessage({ type: 'CHECK_AUTH' });
-        if (!response || !response.authenticated) {
-          updateStatus('Please log into my.wealthsimple.com to authenticate', 'error');
-          if (exportBtn) exportBtn.disabled = true;
-          return;
-        }
-      } catch {
-        // Auth check failed
-        updateStatus('Please log into my.wealthsimple.com to authenticate', 'error');
-        if (exportBtn) exportBtn.disabled = true;
-        return;
-      }
-    }
+    await refreshTokenStatus();
 
     const accountInfo = await getCurrentAccountInfo();
 
     if (!accountInfo.isAccountPage) {
       updateStatus('Please navigate to a specific account page to export transactions', 'info');
-      if (exportBtn) exportBtn.disabled = true;
+      renderTokenState();
       return;
     }
 
@@ -270,15 +308,28 @@ async function init() {
     }
 
     const accountDisplay = accountInfo.accountName || accountInfo.accountId || 'this account';
-    updateStatus(`Ready to export ${accountDisplay}`, 'success');
-    if (exportBtn) exportBtn.disabled = false;
+    updateStatus(tokenStored
+      ? `Ready to export ${accountDisplay}`
+      : 'Click Get Token to enable export.', tokenStored ? 'success' : 'info');
+    renderTokenState();
   } catch {
     updateStatus('Initialization error', 'error');
   }
 }
 
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'TOKEN_STATUS_CHANGED') {
+    tokenStateVersion++;
+    tokenStored = message.stored === true;
+    renderTokenState();
+  }
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   statusDiv = document.getElementById('status') as HTMLDivElement;
+  tokenStatusDiv = document.getElementById('tokenStatus') as HTMLDivElement;
+  getTokenBtn = document.getElementById('getTokenBtn') as HTMLButtonElement;
+  flushTokenBtn = document.getElementById('flushTokenBtn') as HTMLButtonElement;
   exportBtn = document.getElementById('exportBtn') as HTMLButtonElement;
   exportSinceLastBtn = document.getElementById('exportSinceLastBtn') as HTMLButtonElement;
   startDateInput = document.getElementById('startDate') as HTMLInputElement;
@@ -292,6 +343,8 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  getTokenBtn?.addEventListener('click', () => void handleTokenAction('GET_TOKENS'));
+  flushTokenBtn?.addEventListener('click', () => void handleTokenAction('FLUSH_TOKEN'));
   exportBtn.addEventListener('click', () => handleExport(false));
   if (exportSinceLastBtn) {
     exportSinceLastBtn.addEventListener('click', handleExportSinceLast);

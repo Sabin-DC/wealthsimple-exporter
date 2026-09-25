@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures';
 import { navigateToAccount } from './helpers/auth';
+import { ensureTokenLoaded } from './helpers/token';
 import {
     waitForDownload,
     readDownloadContent,
@@ -34,6 +35,7 @@ test.describe('04 - Export Workflow', () => {
 
         // Click export button
         const exportBtn = extensionPage.locator('#ws-export-btn');
+        await ensureTokenLoaded(extensionPage);
         await exportBtn.click();
 
         // First, wait for export status to confirm background succeeded
@@ -69,6 +71,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);
@@ -103,6 +106,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);
@@ -131,6 +135,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-format').selectOption('ofx');
 
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage, 30_000);
@@ -156,6 +161,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-format').selectOption('qfx');
 
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage, 30_000);
@@ -185,6 +191,7 @@ test.describe('04 - Export Workflow', () => {
 
         // Export and verify
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);
@@ -205,6 +212,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-format').selectOption('csv');
 
         // Export
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         // Check for success message via status element
@@ -245,6 +253,7 @@ test.describe('04 - Export Workflow', () => {
         await extensionPage.locator('#ws-export-toggle-btn').click();
         await extensionPage.locator('#ws-export-format').selectOption('csv');
         const before = snapshotDownloadsDir();
+        await ensureTokenLoaded(extensionPage);
         await extensionPage.locator('#ws-export-btn').click();
 
         const status = await waitForExportStatus(extensionPage);

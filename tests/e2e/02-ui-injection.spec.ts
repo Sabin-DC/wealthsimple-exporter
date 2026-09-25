@@ -69,6 +69,25 @@ test.describe('02 - UI Injection', () => {
         // Check for export button
         const exportBtn = extensionPage.locator('#ws-export-btn');
         await expect(exportBtn).toBeVisible();
+
+        const tokenStatus = extensionPage.locator('#ws-token-status');
+        const getToken = extensionPage.locator('#ws-get-token');
+        const flushToken = extensionPage.locator('#ws-flush-token');
+        await expect(tokenStatus).toBeVisible();
+        await expect(getToken).toBeVisible();
+        await expect(flushToken).toBeVisible();
+
+        if (await flushToken.isEnabled()) await flushToken.click();
+        await expect(tokenStatus).toContainText('Not stored');
+        await expect(exportBtn).toBeDisabled();
+
+        await getToken.click();
+        await expect(tokenStatus).toContainText('Stored for this browser session');
+        await expect(exportBtn).toBeEnabled();
+
+        await flushToken.click();
+        await expect(tokenStatus).toContainText('Not stored');
+        await expect(exportBtn).toBeDisabled();
     });
 
     test('should close panel via close button', async ({ extensionPage }) => {
