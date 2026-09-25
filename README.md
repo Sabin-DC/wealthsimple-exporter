@@ -1,8 +1,8 @@
-# Wealthsimple Exporter (Unofficial)
+# Wealthsimple & AccèsD Exporter (Unofficial)
 
-> **Disclaimer:** This project is an unofficial browser extension. It is not affiliated with, maintained, authorized, or endorsed by Wealthsimple Technologies Inc. or any of its affiliates. Use at your own risk.
+> **Disclaimer:** This project is an unofficial browser extension. It is not affiliated with, maintained, authorized, or endorsed by Wealthsimple Technologies Inc., Desjardins Group, or their affiliates. Use at your own risk.
 
-A privacy-focused browser extension for exporting Wealthsimple transactions to CSV, OFX, and QFX. Designed for users of Actual Budget, YNAB, and Quicken who need more granular export options than native monthly statements.
+A privacy-focused browser extension for exporting Wealthsimple transactions to CSV, OFX, and QFX, and visible AccèsD checking and credit card transactions to CSV. Designed for users of Actual Budget, YNAB, and Quicken who need more granular export options than native monthly statements.
 
 Inspired in part by [ws-api-python](https://github.com/gboudreau/ws-api-python), an unofficial Python API for Wealthsimple.
 
@@ -14,6 +14,7 @@ Inspired in part by [ws-api-python](https://github.com/gboudreau/ws-api-python),
 - **Multiple Formats**: Export as **CSV**, **OFX**, or **QFX** seamlessly.
 - **YNAB Optimized**: CSV output is pre-formatted to match YNAB's import requirements.
 - **Incremental Syncing**: Tracks `lastTransactionId` to help prevent duplicate imports into your budget.
+- **AccèsD Visible CSV**: Export checking, billed credit card, and dated pending rows currently rendered in your selected AccèsD view, including current-month activity. Use the page button or extension popup. This does not read or store an AccèsD token.
 - **Privacy First**: Local processing with zero telemetry. Your Wealthsimple access token is loaded only when you click **Get Token** and is held for the current browser session.
 
 ## 📊 Account Coverage
@@ -32,11 +33,21 @@ Inspired in part by [ws-api-python](https://github.com/gboudreau/ws-api-python),
 The extension uses a strictly local-first architecture:
 
 - **Authentication**: Click **Get Token** in the popup or page export panel while signed in to Wealthsimple. The extension reads the session cookie only on that click, keeps its access token in browser session storage, and never asks for your password or MFA code. Click **Flush Token** when finished; closing the browser also clears the stored copy.
-- **Data Handling**: All fetching and file generation happens entirely within your browser. No data is sent to external servers.
+- **Data Handling**: Wealthsimple requests go only to Wealthsimple. AccèsD export reads the transaction rows already rendered in the active browser tab; it makes no AccèsD API requests and stores no AccèsD token. File generation happens in your browser. No transaction data is sent to the project or a third-party service.
 - **Transparency**: Core logic is located in `src/background/transactionService.ts` for easy auditing.
 - **Zero Telemetry**: No analytics, tracking, or "home-phoning" is included.
 
-The status label shows whether the extension currently holds a token. Export is disabled until you click **Get Token**. **Flush Token** removes the extension's copy; it does not sign you out of Wealthsimple or invalidate Wealthsimple's own session.
+The Wealthsimple status label shows whether the extension currently holds a Wealthsimple token. Export is disabled until you click **Get Token**. **Flush Token** removes the extension's copy; it does not sign you out of Wealthsimple or invalidate Wealthsimple's own session.
+
+
+### AccèsD checking and credit card export
+
+1. Sign in to personal AccèsD and open a checking account or credit card transaction view. Select the account, month, and any available filters.
+2. Click **Export visible AccèsD CSV** on the page or in the extension popup. The extension exports transaction rows currently rendered for that view to your Downloads folder, using the same `Date,Payee,Memo,Outflow,Inflow` CSV columns as the Wealthsimple budgeting export.
+
+The AccèsD export includes loaded rows in the displayed transaction sections for the selected account, including multiple visible month sections and rows below the scroll position. It does not fetch other pages, closed months, or transactions hidden behind a **Load more** control. Checking rows require a visible month/year heading. Billed credit card rows use headings such as **Facturées en septembre 2026**. Credit card rows under **Autorisées non facturées** are included with **Pending authorization** in the Memo column when a matching billed month gives them an unambiguous year. Checking rows in a pending section or with **Pending**/**En attente** in the date label are included with **Pending transaction** in Memo. A separate checking pending section needs a matching checking month/year heading; checking amount signs are preserved. If a pending row's year or account type cannot be resolved, export stops without creating a partial CSV. The parser ignores totals, balances, credit card reward percentages (Remises), and action cells. An unsigned credit card amount is exported as an outflow; an amount with a leading **+** is exported as an inflow. Pending amounts retain their displayed magnitude, including zero amounts that may change when posted. French abbreviated dates and matching duplicate date labels are supported. If AccèsD changes its page markup, the export stops with an error instead of guessing. On a parse error, the popup offers a copyable diagnostic with only row structure and masked date/amount patterns; it contains no merchant names or raw amounts and is never uploaded by the extension. Check the CSV before importing it. Credit card layout support is based on the shown page structure and still needs a live retest.
+
+The AccèsD content script is limited to `https://accesdc.mouv.desjardins.com/*` and `https://accesd.mouv.desjardins.com/*` so it can read the displayed rows. AccèsD is not in `host_permissions`, and the extension does not use the cookies API for AccèsD. The `scripting` permission lets the popup load the bundled AccèsD script into an already-open tab only after you click export and the normal page connection fails; `activeTab` limits that fallback to the invoked tab. Browser permission prompts may still list the content-script site.
 
 ## 🚀 Getting Started
 

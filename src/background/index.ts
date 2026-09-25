@@ -6,6 +6,9 @@
 
 import { fetchAccounts, fetchTransactions } from './transactionService';
 import { generateExportFile } from '../utils/exporters';
+import { generateCSV } from '../utils/exporters/csv';
+import type { NormalizedTransaction } from '../utils/types';
+import { isAccesDTransactionUrl } from '../utils/accesdSite';
 import type { ExportFormat } from '../utils/exporters';
 
 let tokenChanges: Promise<void> = Promise.resolve();
@@ -250,11 +253,65 @@ async function handleExportTransactions(
   }
 }
 
+function safeSpreadsheetText(value: string): string {
+  // Spreadsheet programs can evaluate formulas from CSV text cells.
+  return /^[\s\u0000-\u001f]*[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
+function validatedAccesDTransactions(input: unknown): NormalizedTransaction[] {
+  if (!Array.isArray(input) || input.length === 0 || input.length > 10000) {
+    throw new Error('The visible transaction list is empty or too large.');
+  }
+  return input.map((item: unknown, index: number) => {
+    if (!item || typeof item !== 'object') throw new Error('Invalid transaction data.');
+    const row = item as Record<string, unknown>;
+    if (typeof row.date !== 'string' || !/^20\d{2}-\d{2}-\d{2}$/.test(row.date) ||
+        typeof row.description !== 'string' || !row.description.trim() || row.description.length > 1000 ||
+        typeof row.category !== 'string' || row.category.length > 1000 ||
+        typeof row.amount !== 'number' || !Number.isFinite(row.amount) || Math.abs(row.amount) > 1e12) {
+      throw new Error(`Invalid transaction at row ${index + 1}.`);
+    }
+    const [year, month, day] = row.date.split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+      throw new Error(`Invalid date at row ${index + 1}.`);
+    }
+    return {
+      id: `accesd-${index}`, date: row.date, description: safeSpreadsheetText(row.description),
+      amount: row.amount, currency: 'CAD', category: safeSpreadsheetText(row.category), accountId: '',
+    };
+  });
+}
+
+async function exportVisibleAccesD(message: unknown, sender: chrome.runtime.MessageSender): Promise<{ success: boolean; error?: string; transactionCount?: number }> {
+  try {
+    if (sender.id !== chrome.runtime.id || !sender.tab?.id || sender.frameId !== 0 ||
+        !isAccesDTransactionUrl(sender.url)) {
+      throw new Error('Export request was not sent from the AccèsD page.');
+    }
+    const transactions = validatedAccesDTransactions((message as { transactions?: unknown }).transactions);
+    const content = generateCSV(transactions);
+    const filename = `accesd-visible-${new Date().toISOString().slice(0, 10)}.csv`;
+    await chrome.downloads.download({
+      url: `data:text/csv;charset=utf-8,${encodeURIComponent('\uFEFF' + content)}`,
+      filename, saveAs: false, conflictAction: 'uniquify',
+    });
+    return { success: true, transactionCount: transactions.length };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'AccèsD export failed.' };
+  }
+}
+
 /**
  * Listen for messages from popup
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'EXPORT_TRANSACTIONS') {
+  if (message?.type === 'EXPORT_ACCESD_VISIBLE') {
+    void exportVisibleAccesD(message, sender).then(sendResponse);
+    return true;
+  }
+
+  if (message?.type === 'EXPORT_TRANSACTIONS') {
     const accountId = message.accountId || null;
     const startDate = message.startDate || null;
     const endDate = message.endDate || null;

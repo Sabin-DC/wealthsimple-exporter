@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "Wealthsimple Exporter",
+  "name": "Wealthsimple & AccèsD Exporter",
   "version": "0.1.1",
-  "description": "Export your Wealthsimple transactions directly from the browser.",
-  "permissions": ["storage", "activeTab", "cookies", "downloads"],
-  "host_permissions": ["https://*.wealthsimple.com/*"],
+  "description": "Export Wealthsimple and visible AccèsD checking and credit card transactions locally.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "cookies",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.wealthsimple.com/*"
+  ],
   "icons": {
     "16": "assets/icons/icon16.png",
     "32": "assets/icons/icon32.png",
@@ -22,8 +30,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://my.wealthsimple.com/*"],
-      "js": ["src/content/index.ts"]
+      "matches": [
+        "https://my.wealthsimple.com/*"
+      ],
+      "js": [
+        "src/content/index.ts"
+      ]
+    },
+    {
+      "matches": [
+        "https://accesdc.mouv.desjardins.com/*",
+        "https://accesd.mouv.desjardins.com/*"
+      ],
+      "js": [
+        "src/content/accesd.ts"
+      ]
     }
   ],
   "background": {

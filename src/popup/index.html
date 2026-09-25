@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Wealthsimple Exporter</title>
+  <title>Wealthsimple &amp; AccèsD Exporter</title>
   <style>
     body {
       width: 320px;
@@ -158,6 +158,9 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
+    #accesdDiagnostics { margin: 10px 0 16px; font-size: 12px; color: #333; }
+    #accesdDiagnostics textarea { box-sizing: border-box; width: 100%; height: 126px; margin: 6px 0; resize: vertical; font: 11px monospace; }
+    #accesdDiagnostics p { margin: 0 0 6px; }
     .last-export-info {
       font-size: 11px;
       color: #666;
@@ -170,8 +173,13 @@
 </head>
 <body>
   <div id="app">
-    <h1>Wealthsimple Exporter</h1>
+    <h1>Wealthsimple &amp; AccèsD Exporter</h1>
     <div id="status" class="info">Checking token status...</div>
+    <div id="accesdDiagnostics" style="display: none;">
+      <p>Safe diagnostic: masked date and amount patterns only. Review before sharing.</p>
+      <textarea id="accesdDiagnosticText" readonly aria-label="AccèsD safe diagnostic"></textarea>
+      <button id="copyAccesDDiagnostic" class="secondary" type="button">Copy diagnostic</button>
+    </div>
     <div class="token-controls">
       <div id="tokenStatus" role="status" aria-live="polite">Session token: Checking...</div>
       <div class="token-buttons">

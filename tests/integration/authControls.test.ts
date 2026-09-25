@@ -4,6 +4,7 @@ interface Reply {
   success?: boolean;
   stored?: boolean;
   error?: string;
+  transactionCount?: number;
 }
 
 describe('manual token controls', () => {
@@ -16,11 +17,12 @@ describe('manual token controls', () => {
   let cookieGet: ReturnType<typeof vi.fn>;
   let localRemove: ReturnType<typeof vi.fn>;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let download: ReturnType<typeof vi.fn>;
   let sessionData: Record<string, unknown>;
 
-  async function send(type: string, fields: Record<string, unknown> = {}): Promise<Reply> {
+  async function send(type: string, fields: Record<string, unknown> = {}, sender = {} as chrome.runtime.MessageSender): Promise<Reply> {
     return new Promise((resolve) => {
-      const result = handleMessage({ type, ...fields }, {} as chrome.runtime.MessageSender, resolve);
+      const result = handleMessage({ type, ...fields }, sender, resolve);
       expect(result).toBe(true);
     });
   }
@@ -31,6 +33,7 @@ describe('manual token controls', () => {
     cookieGet = vi.fn();
     localRemove = vi.fn().mockResolvedValue(undefined);
     fetchMock = vi.fn();
+    download = vi.fn().mockResolvedValue(1);
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('chrome', {
       cookies: { get: cookieGet },
@@ -43,10 +46,12 @@ describe('manual token controls', () => {
         local: { remove: localRemove },
       },
       runtime: {
+        id: 'test-extension-id',
         sendMessage: vi.fn().mockResolvedValue(undefined),
         onMessage: { addListener: vi.fn((listener) => { handleMessage = listener; }) },
         onInstalled: { addListener: vi.fn((listener) => { handleInstalled = listener; }) },
       },
+      downloads: { download },
       tabs: {
         query: vi.fn().mockResolvedValue([]),
         sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -99,6 +104,38 @@ describe('manual token controls', () => {
     expect(await getReply).toEqual({ success: true, stored: true });
     expect(await flushReply).toEqual({ success: true, stored: false });
     expect(sessionData).toEqual({});
+  });
+
+  it('exports AccèsD rows locally only for the two exact page origins, without token access', async () => {
+    const transactions = [{ date: '2026-09-22', description: '=HYPERLINK(\"https://example.invalid\")',
+      amount: -12.34, category: 'Retail stores - Other' }];
+    const validSender = { id: 'test-extension-id', tab: { id: 1 }, frameId: 0,
+      url: 'https://accesdc.mouv.desjardins.com/transactions' } as chrome.runtime.MessageSender;
+    expect(await send('EXPORT_ACCESD_VISIBLE', { transactions }, validSender))
+      .toEqual({ success: true, transactionCount: 1 });
+    expect(download).toHaveBeenCalledTimes(1);
+    const csv = decodeURIComponent(download.mock.calls[0][0].url.split(',').slice(1).join(','));
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).toContain('2026-09-22');
+    expect(csv).toContain('12.34,');
+    expect(cookieGet).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sessionData).toEqual({});
+
+    const alternateSender = { ...validSender, url: 'https://accesd.mouv.desjardins.com/transactions' } as chrome.runtime.MessageSender;
+    expect(await send('EXPORT_ACCESD_VISIBLE', { transactions }, alternateSender))
+      .toEqual({ success: true, transactionCount: 1 });
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(cookieGet).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sessionData).toEqual({});
+
+    const invalidSender = { ...validSender, url: 'https://example.com/transactions' } as chrome.runtime.MessageSender;
+    expect(await send('EXPORT_ACCESD_VISIBLE', { transactions }, invalidSender)).toMatchObject({ success: false });
+    expect(download).toHaveBeenCalledTimes(2);
+    const loginSender = { ...validSender, url: 'https://accweb.mouv.desjardins.com/' } as chrome.runtime.MessageSender;
+    expect(await send('EXPORT_ACCESD_VISIBLE', { transactions }, loginSender)).toMatchObject({ success: false });
+    expect(download).toHaveBeenCalledTimes(2);
   });
 
   it('deletes tokens persisted by earlier versions on install or update', () => {

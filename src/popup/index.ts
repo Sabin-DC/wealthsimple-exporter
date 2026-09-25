@@ -1,4 +1,6 @@
 import type { ExportFormat } from '../utils/exporters';
+import { isAccesDTransactionUrl } from '../utils/accesdSite';
+import { exportAccesDFromTab } from './accesdConnection';
 
 let statusDiv: HTMLDivElement | null = null;
 let tokenStatusDiv: HTMLDivElement | null = null;
@@ -17,6 +19,7 @@ let formatSection: HTMLDivElement | null = null;
 let formatSelect: HTMLSelectElement | null = null;
 let lastExportInfo: HTMLDivElement | null = null;
 let currentAccountId: string | null = null;
+let currentAccesDTabId: number | null = null;
 
 const EXPORT_FORMAT_KEY = 'preferredExportFormat';
 
@@ -33,7 +36,21 @@ function updateStatus(message: string, type: 'info' | 'error' | 'success' = 'inf
   }
 }
 
+function showAccesDDiagnostic(value?: string) {
+  const panel = document.getElementById('accesdDiagnostics') as HTMLDivElement | null;
+  const field = document.getElementById('accesdDiagnosticText') as HTMLTextAreaElement | null;
+  if (!panel || !field) return;
+  field.value = value || '';
+  const copyButton = document.getElementById('copyAccesDDiagnostic');
+  if (copyButton) copyButton.textContent = 'Copy diagnostic';
+  panel.style.display = value ? 'block' : 'none';
+}
+
 function renderTokenState() {
+  if (currentAccesDTabId !== null) {
+    if (exportBtn) exportBtn.disabled = exporting;
+    return;
+  }
   if (tokenStatusDiv) {
     tokenStatusDiv.textContent = tokenStored
       ? 'Session token: Stored for this browser session'
@@ -204,6 +221,27 @@ async function getCurrentAccountInfo(): Promise<{ accountId: string | null; acco
   }
 }
 
+async function handleAccesDExport() {
+  if (currentAccesDTabId === null) return;
+  exporting = true;
+  renderTokenState();
+  updateStatus('Reading visible AccèsD transactions…');
+  showAccesDDiagnostic();
+  try {
+    const response = await exportAccesDFromTab(currentAccesDTabId);
+    if (!response?.success) {
+      showAccesDDiagnostic(response?.diagnostic);
+      throw new Error(response?.error || 'Export failed.');
+    }
+    updateStatus(`Saved ${response.transactionCount} visible transactions to Downloads.`, 'success');
+  } catch (error) {
+    updateStatus(error instanceof Error ? error.message : 'Export failed. Reload the AccèsD page and try again.', 'error');
+  } finally {
+    exporting = false;
+    renderTokenState();
+  }
+}
+
 async function handleExport(sinceLast: boolean = false) {
   if (!exportBtn || !currentAccountId) return;
 
@@ -286,6 +324,19 @@ async function init() {
       formatSelect.value = preferredFormat;
     }
 
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTab?.id && isAccesDTransactionUrl(activeTab.url)) {
+      currentAccesDTabId = activeTab.id;
+      document.querySelector<HTMLElement>('.token-controls')?.style.setProperty('display', 'none');
+      document.querySelector<HTMLElement>('.export-buttons')?.style.setProperty('display', 'block');
+      if (exportBtn) {
+        exportBtn.textContent = 'Export visible AccèsD CSV';
+        exportBtn.disabled = false;
+      }
+      updateStatus('Open a checking or credit card transaction view, then export its eligible rows. No AccèsD token is stored.');
+      return;
+    }
+
     await refreshTokenStatus();
 
     const accountInfo = await getCurrentAccountInfo();
@@ -343,9 +394,25 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  document.getElementById('copyAccesDDiagnostic')?.addEventListener('click', async () => {
+    const field = document.getElementById('accesdDiagnosticText') as HTMLTextAreaElement | null;
+    const button = document.getElementById('copyAccesDDiagnostic') as HTMLButtonElement | null;
+    if (!field?.value || !button) return;
+    try {
+      await navigator.clipboard.writeText(field.value);
+      button.textContent = 'Copied';
+    } catch {
+      field.select();
+      button.textContent = 'Select and copy the text';
+    }
+  });
+
   getTokenBtn?.addEventListener('click', () => void handleTokenAction('GET_TOKENS'));
   flushTokenBtn?.addEventListener('click', () => void handleTokenAction('FLUSH_TOKEN'));
-  exportBtn.addEventListener('click', () => handleExport(false));
+  exportBtn.addEventListener('click', () => {
+    if (currentAccesDTabId !== null) void handleAccesDExport();
+    else void handleExport(false);
+  });
   if (exportSinceLastBtn) {
     exportSinceLastBtn.addEventListener('click', handleExportSinceLast);
   }
