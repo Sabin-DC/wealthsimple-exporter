@@ -282,6 +282,26 @@ describe('AccèsD visible credit-card transactions', () => {
     expect(csv).toContain('2026-07-13,Paiement,,,24.95');
   });
 
+  it('reads English "Posted in <month> <year>" headings and Mon DD dates', () => {
+    document.body.innerHTML = `
+      <h2>Transactions by month</h2>
+      <h3>Posted in November 2026</h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Nov 16 <span class="sr-only">November 16</span></td><td><div>Medical care</div><div>Example clinic</div></td><td>$1,234.50</td><td></td></tr>
+        <tr><td>Nov 13</td><td>Payment - Thank You</td><td>+$300.00</td><td></td></tr>
+        <tr><td>Total</td><td></td><td>$934.50</td><td></td></tr>
+      </tbody></table>
+      <h3>Posted in October 2026</h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+      <tbody><tr><td>Oct 22</td><td>Example store</td><td>$20.00</td><td></td></tr></tbody></table>`;
+    expect(parseVisibleAccesDTransactions()).toMatchObject([
+      { date: '2026-11-16', category: 'Medical care', description: 'Example clinic', amount: -1234.5 },
+      { date: '2026-11-13', description: 'Payment - Thank You', amount: 300 },
+      { date: '2026-10-22', description: 'Example store', amount: -20 },
+    ]);
+  });
+
   it('finds billed headings in bold text and section containers after pending rows', () => {
     document.body.innerHTML = `
       <div><div>Autorisées non facturées <button>i</button></div>

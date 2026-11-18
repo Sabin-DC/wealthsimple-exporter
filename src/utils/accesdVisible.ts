@@ -89,7 +89,7 @@ function sectionHeading(value: string): SectionInfo | null {
   if (/^pending transactions(?:\s|$)/.test(label) || label === 'en attente' || label === 'pending') {
     return { kind: 'pending', accountKind: null };
   }
-  const billed = label.match(/^facturees en ([a-z]+)\s+(20\d{2})(?:\s|$)/);
+  const billed = label.match(/^(?:facturees en|posted in)\s+([a-z]+)\s+(20\d{2})(?:\s|$)/);
   const checking = label.match(/^([a-z]+)\s+(20\d{2})$/);
   const match = billed ?? checking;
   if (!match) return null;
