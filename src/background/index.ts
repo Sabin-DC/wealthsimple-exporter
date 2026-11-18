@@ -10,6 +10,7 @@ import { generateCSV } from '../utils/exporters/csv';
 import type { NormalizedTransaction } from '../utils/types';
 import { isAccesDTransactionUrl } from '../utils/accesdSite';
 import type { ExportFormat } from '../utils/exporters';
+import { toLocalDateString } from '../utils/dates';
 
 /**
  * Download text via a blob URL. Firefox rejects data: URLs in downloads.download().
@@ -101,8 +102,8 @@ function getLast30Days(): { startDate: string; endDate: string } {
   startDate.setDate(startDate.getDate() - 30);
 
   return {
-    startDate: startDate.toISOString().split('T')[0],
-    endDate: endDate.toISOString().split('T')[0],
+    startDate: toLocalDateString(startDate),
+    endDate: toLocalDateString(endDate),
   };
 }
 
@@ -209,8 +210,8 @@ async function handleExportTransactions(
       }
 
       dateRange = {
-        startDate: exportTransactions[exportTransactions.length - 1]?.date ?? new Date().toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0],
+        startDate: exportTransactions[exportTransactions.length - 1]?.date ?? toLocalDateString(new Date()),
+        endDate: toLocalDateString(new Date()),
       };
     }
 
@@ -301,7 +302,7 @@ async function exportVisibleAccesD(message: unknown, sender: chrome.runtime.Mess
     }
     const transactions = validatedAccesDTransactions((message as { transactions?: unknown }).transactions);
     const content = generateCSV(transactions);
-    const filename = `accesd-visible-${new Date().toISOString().slice(0, 10)}.csv`;
+    const filename = `accesd-visible-${toLocalDateString(new Date())}.csv`;
     await downloadText('\uFEFF' + content, 'text/csv;charset=utf-8', filename);
     return { success: true, transactionCount: transactions.length };
   } catch (error) {

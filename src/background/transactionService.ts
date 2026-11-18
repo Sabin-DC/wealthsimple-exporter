@@ -3,6 +3,7 @@
  */
 
 import { FETCH_ALL_ACCOUNT_FINANCIALS, FETCH_ACTIVITY_FEED_ITEMS } from '../utils/queries';
+import { isoToLocalDate } from '../utils/dates';
 import type {
   Account,
   Activity,
@@ -424,7 +425,7 @@ export function normalizeTransaction(
 
   return {
     id: activity.canonicalId,
-    date: activity.occurredAt.split('T')[0], // Extract YYYY-MM-DD
+    date: isoToLocalDate(activity.occurredAt), // Local YYYY-MM-DD
     description: generateDescription(activity, accountMap),
     amount: amount,
     currency: activity.currency ?? 'CAD',

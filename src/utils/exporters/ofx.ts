@@ -1,6 +1,7 @@
 import type { NormalizedTransaction } from '../types';
 import type { OfxGenerationOptions } from './types';
 import { derivePayee } from './payee';
+import { toLocalDateString } from '../dates';
 
 const OFX_HEADER_LINES = [
   'OFXHEADER:100',
@@ -104,8 +105,8 @@ function buildOfxBody(
 ): string {
   const currency = options.currency || transactions[0]?.currency || 'CAD';
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-  const startDate = sorted[0]?.date ?? now.toISOString().slice(0, 10);
-  const endDate = sorted[sorted.length - 1]?.date ?? now.toISOString().slice(0, 10);
+  const startDate = sorted[0]?.date ?? toLocalDateString(now);
+  const endDate = sorted[sorted.length - 1]?.date ?? toLocalDateString(now);
   const ledgerAmount = transactions.reduce((sum, transaction) => sum + transaction.amount, 0);
   const org = sanitizeValue(options.org || 'WEALTHSIMPLE');
   const fid = sanitizeValue(options.fid || '1001');

@@ -2,6 +2,7 @@ import { isExportFormat } from '../utils/exporters/types';
 import type { ExportFormat } from '../utils/exporters/types';
 import { isAccesDTransactionUrl } from '../utils/accesdSite';
 import { exportAccesDFromTab } from './accesdConnection';
+import { addDaysToDateString, toLocalDateString } from '../utils/dates';
 
 let statusDiv: HTMLDivElement | null = null;
 let tokenStatusDiv: HTMLDivElement | null = null;
@@ -110,8 +111,8 @@ function getDefaultDateRange(days: number = 30): { startDate: string; endDate: s
   start.setDate(start.getDate() - days);
 
   return {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0],
+    startDate: toLocalDateString(start),
+    endDate: toLocalDateString(end),
   };
 }
 
@@ -305,11 +306,8 @@ async function handleExportSinceLast() {
   if (!lastExport) return;
 
   if (!lastExport.lastTransactionId) {
-    const lastDate = new Date(lastExport.date);
-    lastDate.setDate(lastDate.getDate() + 1);
-
-    if (startDateInput) startDateInput.value = lastDate.toISOString().split('T')[0];
-    if (endDateInput) endDateInput.value = new Date().toISOString().split('T')[0];
+    if (startDateInput) startDateInput.value = addDaysToDateString(lastExport.date, 1);
+    if (endDateInput) endDateInput.value = toLocalDateString(new Date());
 
     document.querySelectorAll('.quick-range button').forEach((btn) => btn.classList.remove('active'));
   }

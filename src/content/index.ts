@@ -1,3 +1,4 @@
+import { addDaysToDateString, toLocalDateString } from '../utils/dates';
 // Content script - runs on Wealthsimple pages to detect current account and inject export UI
 
 interface AccountInfo {
@@ -159,8 +160,8 @@ function getContentDateRange(days: number = 30): { startDate: string; endDate: s
   start.setDate(start.getDate() - days);
 
   return {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0],
+    startDate: toLocalDateString(start),
+    endDate: toLocalDateString(end),
   };
 }
 
@@ -755,10 +756,8 @@ function setupExportPanel(accountId: string) {
       exportBtn?.click();
       return;
     } else {
-      const lastDate = new Date(lastExport.date);
-      lastDate.setDate(lastDate.getDate() + 1);
-      startDateInput.value = lastDate.toISOString().split('T')[0];
-      endDateInput.value = today.toISOString().split('T')[0];
+      startDateInput.value = addDaysToDateString(lastExport.date, 1);
+      endDateInput.value = toLocalDateString(today);
     }
 
     document.querySelectorAll('.ws-range-btn').forEach((btn) => {
