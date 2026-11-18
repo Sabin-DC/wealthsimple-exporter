@@ -18,6 +18,7 @@ describe('manual token controls', () => {
   let localRemove: ReturnType<typeof vi.fn>;
   let fetchMock: ReturnType<typeof vi.fn>;
   let download: ReturnType<typeof vi.fn>;
+  let blobs: Blob[];
   let sessionData: Record<string, unknown>;
 
   async function send(type: string, fields: Record<string, unknown> = {}, sender = {} as chrome.runtime.MessageSender): Promise<Reply> {
@@ -34,6 +35,9 @@ describe('manual token controls', () => {
     localRemove = vi.fn().mockResolvedValue(undefined);
     fetchMock = vi.fn();
     download = vi.fn().mockResolvedValue(1);
+    blobs = [];
+    URL.createObjectURL = (blob: Blob) => { blobs.push(blob); return `blob:test-${blobs.length}`; };
+    URL.revokeObjectURL = () => undefined;
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('chrome', {
       cookies: { get: cookieGet },
@@ -51,7 +55,7 @@ describe('manual token controls', () => {
         onMessage: { addListener: vi.fn((listener) => { handleMessage = listener; }) },
         onInstalled: { addListener: vi.fn((listener) => { handleInstalled = listener; }) },
       },
-      downloads: { download },
+      downloads: { download, onChanged: { addListener: vi.fn(), removeListener: vi.fn() } },
       tabs: {
         query: vi.fn().mockResolvedValue([]),
         sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -114,7 +118,12 @@ describe('manual token controls', () => {
     expect(await send('EXPORT_ACCESD_VISIBLE', { transactions }, validSender))
       .toEqual({ success: true, transactionCount: 1 });
     expect(download).toHaveBeenCalledTimes(1);
-    const csv = decodeURIComponent(download.mock.calls[0][0].url.split(',').slice(1).join(','));
+    expect(download.mock.calls[0][0].url).toMatch(/^blob:/);
+    const csv = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsText(blobs[0]);
+    });
     expect(csv).toContain("'=HYPERLINK");
     expect(csv).toContain('2026-09-22');
     expect(csv).toContain('12.34,');

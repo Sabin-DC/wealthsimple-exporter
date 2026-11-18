@@ -11,6 +11,35 @@ import type { NormalizedTransaction } from '../utils/types';
 import { isAccesDTransactionUrl } from '../utils/accesdSite';
 import type { ExportFormat } from '../utils/exporters';
 
+/**
+ * Download text via a blob URL. Firefox rejects data: URLs in downloads.download().
+ * The URL is revoked once the download finishes (or fails to start).
+ */
+async function downloadText(content: string, mimeType: string, filename: string): Promise<number> {
+  const blobUrl = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const cleanup = () => URL.revokeObjectURL(blobUrl);
+  try {
+    const downloadId = await chrome.downloads.download({
+      url: blobUrl,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    const onChanged = (delta: chrome.downloads.DownloadDelta) => {
+      if (delta.id === downloadId &&
+          (delta.state?.current === 'complete' || delta.state?.current === 'interrupted')) {
+        chrome.downloads.onChanged.removeListener(onChanged);
+        cleanup();
+      }
+    };
+    chrome.downloads.onChanged.addListener(onChanged);
+    return downloadId;
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
 let tokenChanges: Promise<void> = Promise.resolve();
 
 function queueTokenChange<T>(change: () => Promise<T>): Promise<T> {
@@ -209,26 +238,7 @@ async function handleExportTransactions(
     const filename = `wealthsimple-${safeAccountName}-${dateRange.endDate}.${exportFile.extension}`;
 
     try {
-      // Use data URL (works in service workers, unlike blob URLs)
-      const dataUrl = `data:${exportFile.mimeType},` + encodeURIComponent(exportFile.content);
-
-      const downloadId = await chrome.downloads.download({
-        url: dataUrl,
-        filename: filename,
-        saveAs: false, // Auto-download to Downloads folder
-        conflictAction: 'uniquify',
-      });
-
-      // Monitor download completion
-      const checkDownload = (delta: chrome.downloads.DownloadDelta) => {
-        if (delta.id === downloadId) {
-          if (delta.state?.current === 'complete' || delta.state?.current === 'interrupted') {
-            chrome.downloads.onChanged.removeListener(checkDownload);
-          }
-        }
-      };
-
-      chrome.downloads.onChanged.addListener(checkDownload);
+      await downloadText(exportFile.content, exportFile.mimeType, filename);
 
       const lastExportedTransactionId =
         exportTransactions[exportTransactions.length - 1]?.id ?? null;
@@ -292,10 +302,7 @@ async function exportVisibleAccesD(message: unknown, sender: chrome.runtime.Mess
     const transactions = validatedAccesDTransactions((message as { transactions?: unknown }).transactions);
     const content = generateCSV(transactions);
     const filename = `accesd-visible-${new Date().toISOString().slice(0, 10)}.csv`;
-    await chrome.downloads.download({
-      url: `data:text/csv;charset=utf-8,${encodeURIComponent('\uFEFF' + content)}`,
-      filename, saveAs: false, conflictAction: 'uniquify',
-    });
+    await downloadText('\uFEFF' + content, 'text/csv;charset=utf-8', filename);
     return { success: true, transactionCount: transactions.length };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'AccèsD export failed.' };
