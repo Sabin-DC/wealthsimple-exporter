@@ -8,7 +8,11 @@ import {
   generateOFX,
   generateQFX,
   generateExportFile,
+  generateSignedCSV,
+  EXPORT_FORMATS,
+  isExportFormat,
 } from '../../src/utils/exporters';
+import { readFileSync } from 'node:fs';
 import { generateFitId } from '../../src/utils/exporters/ofx';
 import type { NormalizedTransaction } from '../../src/utils/types';
 
@@ -214,6 +218,92 @@ describe('generateCSV', () => {
   });
 });
 
+describe('generateSignedCSV', () => {
+  const outflow: NormalizedTransaction = {
+    id: 's-1',
+    date: '2024-03-01',
+    description: 'Withdrawal: Bill pay Rogers, Inc',
+    amount: -95.5,
+    currency: 'CAD',
+    category: 'Withdrawal',
+    accountId: 'cash-123',
+  };
+  const inflow: NormalizedTransaction = {
+    ...outflow,
+    id: 's-2',
+    description: 'Deposit: AFT Payroll',
+    amount: 2500,
+    category: 'Deposit',
+  };
+
+  it('uses a single signed Amount column', () => {
+    const lines = generateSignedCSV([outflow, inflow]).split('\n');
+    expect(lines[0]).toBe('Date,Payee,Memo,Amount');
+    expect(lines[1]).toBe('2024-03-01,"Rogers, Inc",Withdrawal | cash-123,-95.50');
+    expect(lines[2]).toBe('2024-03-01,Payroll,Deposit | cash-123,2500.00');
+  });
+
+  it('formats zero as a non-negative amount', () => {
+    const zero = { ...outflow, amount: 0 };
+    expect(generateSignedCSV([zero]).split('\n')[1]).toMatch(/,0\.00$/);
+  });
+
+  it('falls back to the signed trading layout for investment activity', () => {
+    const buy: NormalizedTransaction = {
+      ...outflow,
+      description: 'Buy 2 x VFV',
+      action: 'Buy',
+      symbol: 'VFV',
+      quantity: 2,
+      price: 120,
+      amount: -240,
+    };
+    expect(generateSignedCSV([buy])).toBe(generateCSV([buy]));
+  });
+
+  it('does not change the default CSV layout', () => {
+    expect(generateCSV([outflow]).split('\n')[0]).toBe('Date,Payee,Memo,Outflow,Inflow');
+  });
+
+  it('is exported as a .csv file', () => {
+    const file = generateExportFile([outflow], 'csv-signed', { accountId: 'cash-123' });
+    expect(file.extension).toBe('csv');
+    expect(file.mimeType).toBe('text/csv;charset=utf-8');
+    expect(file.content.split('\n')[0]).toBe('Date,Payee,Memo,Amount');
+  });
+});
+
+describe('export format validation', () => {
+  it('accepts every existing saved preference value', () => {
+    for (const format of ['csv', 'ofx', 'qfx', 'csv-signed']) {
+      expect(isExportFormat(format)).toBe(true);
+    }
+  });
+
+  it('rejects unknown values so callers fall back to CSV', () => {
+    expect(isExportFormat('xlsx')).toBe(false);
+    expect(isExportFormat(undefined)).toBe(false);
+    expect(isExportFormat(null)).toBe(false);
+  });
+
+  it('keeps the content script format list in sync', () => {
+    const content = readFileSync('src/content/index.ts', 'utf8');
+    const match = content.match(/const EXPORT_FORMATS = \[(.*?)\] as const;/);
+    expect(match).not.toBeNull();
+    const contentFormats = match![1].split(',').map((v) => v.trim().replace(/'/g, ''));
+    expect(contentFormats).toEqual([...EXPORT_FORMATS]);
+  });
+
+  it('offers every format in both the popup and the injected panel', () => {
+    const popup = readFileSync('src/popup/index.html', 'utf8');
+    const content = readFileSync('src/content/index.ts', 'utf8');
+    for (const format of EXPORT_FORMATS) {
+      expect(popup).toContain(`<option value="${format}">`);
+      expect(content).toContain(`<option value="${format}">`);
+    }
+  });
+});
+
 describe('OFX/QFX exporters', () => {
   const transaction: NormalizedTransaction = {
     id: 'txn-100',
@@ -298,6 +388,68 @@ describe('OFX/QFX exporters', () => {
     const qfx = generateQFX([normalized], { accountId: 'cash-123' });
     expect(qfx).toContain('<NAME>Utility Co');
     expect(qfx).not.toContain('<NAME>Withdrawal: EFT Utility Co');
+  });
+
+  describe('credit card statements', () => {
+    const purchase: NormalizedTransaction = {
+      id: 'cc-1',
+      date: '2024-02-01',
+      description: 'Starbucks',
+      amount: -6.5,
+      currency: 'CAD',
+      category: 'Purchase',
+      accountId: 'ca-credit-card-abc',
+    };
+    const payment: NormalizedTransaction = {
+      ...purchase,
+      id: 'cc-2',
+      description: 'Credit card payment',
+      amount: 200,
+      category: 'Credit Card Payment',
+    };
+
+    it('uses credit card aggregates for credit card accounts', () => {
+      const ofx = generateOFX([purchase, payment], { accountId: 'ca-credit-card-abc', accountType: 'CREDIT_CARD' });
+      expect(ofx).toContain('<CREDITCARDMSGSRSV1>');
+      expect(ofx).toContain('<CCSTMTTRNRS>');
+      expect(ofx).toContain('<CCSTMTRS>');
+      expect(ofx).toContain('<CCACCTFROM>\n<ACCTID>ca-credit-card-abc\n</CCACCTFROM>');
+      expect(ofx).toContain('</CCSTMTRS>\n</CCSTMTTRNRS>\n</CREDITCARDMSGSRSV1>');
+      expect(ofx).not.toContain('BANKMSGSRSV1');
+      expect(ofx).not.toContain('BANKACCTFROM');
+      expect(ofx).not.toContain('<ACCTTYPE>');
+    });
+
+    it('uses spec-valid DEBIT/CREDIT transaction types for card activity', () => {
+      const ofx = generateOFX([purchase, payment], { accountId: 'ca-credit-card-abc', accountType: 'CREDIT_CARD' });
+      expect(ofx).toContain('<TRNTYPE>DEBIT\n<DTPOSTED>20240201120000\n<TRNAMT>-6.50');
+      expect(ofx).toContain('<TRNTYPE>CREDIT\n<DTPOSTED>20240201120000\n<TRNAMT>200.00');
+      expect(ofx).not.toContain('<TRNTYPE>WITHDRAWAL');
+    });
+
+    it('detects credit cards from the account ID when the type is missing', () => {
+      const ofx = generateOFX([purchase], { accountId: 'ca-credit-card-abc' });
+      expect(ofx).toContain('<CREDITCARDMSGSRSV1>');
+    });
+
+    it('keeps FITIDs identical to bank-style output so re-imports dedupe', () => {
+      const card = generateOFX([purchase], { accountId: 'ca-credit-card-abc', accountType: 'CREDIT_CARD' });
+      const bank = generateOFX([purchase], { accountId: 'cash-123', accountType: 'CASH' });
+      expect(card).toContain('<FITID>cc-1');
+      expect(bank).toContain('<FITID>cc-1');
+    });
+
+    it('applies the credit card structure to QFX too', () => {
+      const qfx = generateQFX([purchase], { accountId: 'ca-credit-card-abc', accountType: 'CREDIT_CARD' });
+      expect(qfx).toContain('<INTU.BID>');
+      expect(qfx).toContain('<CCSTMTRS>');
+    });
+
+    it('does not treat a non-card credit account as a credit card', () => {
+      const ofx = generateOFX([purchase], { accountId: 'loc-1', accountType: 'LINE_OF_CREDIT' });
+      expect(ofx).toContain('<BANKMSGSRSV1>');
+      expect(ofx).toContain('<ACCTTYPE>CREDITLINE');
+    });
   });
 
   it('should dispatch export content and extension by format', () => {
