@@ -302,6 +302,24 @@ describe('AccèsD visible credit-card transactions', () => {
     ]);
   });
 
+  it('handles French and English headings in the same page', () => {
+    document.body.innerHTML = `
+      <h3>Authorized, not yet billed</h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+      <tbody><tr><td>Nov 17</td><td>Pending example</td><td>$5.00</td><td></td></tr></tbody></table>
+      <h3>Posted in November 2026</h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Amount</th><th></th></tr></thead>
+      <tbody><tr><td>Nov 16</td><td>English example</td><td>$10.00</td><td></td></tr></tbody></table>
+      <h3>Facturées en octobre 2026</h3>
+      <table><thead><tr><th>Date</th><th>Description</th><th>Montant</th><th></th></tr></thead>
+      <tbody><tr><td>22 OCT 22 octobre</td><td>Exemple français</td><td>20,00 $</td><td></td></tr></tbody></table>`;
+    expect(parseVisibleAccesDTransactions()).toMatchObject([
+      { date: '2026-11-17', category: 'Pending authorization', amount: -5 },
+      { date: '2026-11-16', description: 'English example', amount: -10 },
+      { date: '2026-10-22', description: 'Exemple français', amount: -20 },
+    ]);
+  });
+
   it('finds billed headings in bold text and section containers after pending rows', () => {
     document.body.innerHTML = `
       <div><div>Autorisées non facturées <button>i</button></div>

@@ -80,7 +80,7 @@ type SectionHeading = SectionInfo & { element: Element };
 
 function sectionHeading(value: string): SectionInfo | null {
   const label = fold(value);
-  if (/^autorisees non facturees(?:\s|$)/.test(label)) {
+  if (/^(?:autorisees non facturees|authorized,? (?:but )?not yet (?:billed|posted))(?:\s|$)/.test(label)) {
     return { kind: 'pending', accountKind: 'billed' };
   }
   if (/^(?:transactions en attente|operations en attente)(?:\s|$)/.test(label)) {
