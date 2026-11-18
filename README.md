@@ -52,7 +52,7 @@ The AccèsD content script is limited to `https://accesdc.mouv.desjardins.com/*`
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Google Chrome or a Chromium-based browser (Brave, Edge, etc.)
+- Firefox 140 or newer (this branch targets Firefox with Manifest V3)
 - Node.js and npm
 
 ### Installation
@@ -69,9 +69,9 @@ The AccèsD content script is limited to `https://accesdc.mouv.desjardins.com/*`
    npm run build
    ```
 4. **Load in Browser:**
-   - Open `chrome://extensions/`
-   - Enable **Developer mode** (top right)
-   - Click **Load unpacked** and select the `dist` folder.
+   - Open `about:debugging#/runtime/this-firefox`
+   - Click **Load Temporary Add-on...** and select `dist/manifest.json`.
+   - Temporary add-ons are removed when Firefox restarts. Run `npm run zip` to package `dist/` for signing/submission on addons.mozilla.org.
 
 ### Testing (Optional)
 This project uses Playwright for E2E testing. To run tests:

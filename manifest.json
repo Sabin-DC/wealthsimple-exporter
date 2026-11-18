@@ -48,7 +48,19 @@
     }
   ],
   "background": {
-    "service_worker": "src/background/index.ts",
-    "type": "module"
+    "scripts": [
+      "src/background/index.ts"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "wealthsimple-exporter@sabin-dc.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
   }
 }
